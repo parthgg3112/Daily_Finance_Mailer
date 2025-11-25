@@ -57,9 +57,9 @@ def clean_json_response(text):
 
 def get_content_from_llm(past_topics):
     """
-    Generates the content. Uses gemini-1.5-flash for speed and free-tier allowance.
+    Generates the content. Uses gemini-2.5-flash for speed and free-tier allowance.
     """
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     
     # We send only the last 30 topics to keep the prompt size efficient
     past_topics_str = ", ".join([h['topic'] for h in past_topics[-30:]])
@@ -208,4 +208,5 @@ def main():
     print("Success. Workflow completed.")
 
 if __name__ == "__main__":
+
     main()
