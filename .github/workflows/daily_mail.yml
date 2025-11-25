@@ -1,0 +1,44 @@
+name: Daily Finance Email
+
+on:
+  schedule:
+    # Runs at 07:00 UTC every day
+    - cron: '0 7 * * *'
+  workflow_dispatch: # Allows manual triggering for testing
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      # Critical: Allows the Action to commit history.json back to the repo
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Daily Mailer
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+        run: python daily_finance_mailer.py
+
+      - name: Commit and push history
+        # Only commit if history.json changed
+        run: |
+          git config --global user.name 'GitHub Action'
+          git config --global user.email 'action@github.com'
+          git add history.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update topic history [skip ci]" && git push)
