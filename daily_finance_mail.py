@@ -65,7 +65,7 @@ def get_content_from_llm(past_topics):
     past_topics_str = ", ".join([h['topic'] for h in past_topics[-30:]])
     
     prompt = f"""
-    You are a financial educator. Write a daily email teaching one specific beginner finance concept.
+    You are a financial educator. Write a daily email teaching one specific beginner finance concept to a person who wants to start investing in Indian markets. This student is from India and is a young 20 year old boy who wants to learn finance markets
     
     Constraint Checklist:
     1. Topic must be UNIQUE and NOT in this list: [{past_topics_str}].
@@ -210,5 +210,6 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
