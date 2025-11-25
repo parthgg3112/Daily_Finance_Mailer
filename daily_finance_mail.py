@@ -12,7 +12,7 @@ import time
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
-EMAIL_RECIPIENT = os.environ.get("EMAIL_RECIPIENT")
+EMAIL_RECIPIENT = os.environ.get("EMAIL_RECIPIENT") # Comma-separated list
 HISTORY_FILE = "history.json"
 
 # Configure Gemini
@@ -53,12 +53,10 @@ def get_content_from_llm(past_topics):
     """
     Generates content based on a sequential Indian Finance Curriculum.
     """
-    # Get the most recent topic to determine the next step
     last_topic = "None (This is the very first email)"
     if past_topics:
         last_topic = past_topics[-1]['topic']
 
-    # We send the last 10 topics to ensure we don't loop back too soon
     recent_history_str = ", ".join([h['topic'] for h in past_topics[-10:]])
     
     prompt = f"""
@@ -69,18 +67,18 @@ def get_content_from_llm(past_topics):
     - Recent topics covered: [{recent_history_str}].
 
     Your Goal:
-    Determine the NEXT logical topic in the sequence. Do not skip steps. If the last topic was "Savings Accounts", the next should be "Fixed Deposits (FDs)" or "Recurring Deposits (RDs)", not "Option Trading".
+    Determine the NEXT logical topic in the sequence. Do not skip steps.
 
     The Syllabus Roadmap (Follow this order loosely):
-    1. Foundations (Inflation in India, Power of Compounding, Assets vs Liabilities)
-    2. Banking Basics (Savings, FD, RD, UPI safety)
-    3. Government Schemes (PPF, EPF, Sukanya Samriddhi)
-    4. Insurance (Term vs Endowment, Health Insurance basics)
-    5. Taxes in India (Old vs New Regime, 80C, TDS)
-    6. Mutual Funds (SIPs, NAV, Equity vs Debt funds)
-    7. Stock Market Basics (Nifty/Sensex, Demat accounts, IPOs)
-    8. Fundamental Analysis (P/E Ratio, ROE, Reading Balance Sheets)
-    9. Advanced (Technical Analysis, F&O intro).
+    1. Foundations (Inflation in India, Power of Compounding, Assets vs Liabilities, Real vs Nominal Returns, Time Value of Money, Opportunity Cost, Budgeting, Net Worth, Emergency Fund Basics, Good Debt vs Bad Debt, Behavioural Finance Basics)
+    2. Banking Basics (Savings Account, FD, RD, Sweep Accounts, NEFT/RTGS/IMPS/UPI Differences, How to Read a Bank Statement, Debit vs Credit Card, UPI Safety, Avoiding Online Frauds)
+    3. Government Schemes (PPF, EPF, NPS, Sukanya Samriddhi Yojana, PMVVY, Post Office Schemes, Senior Citizen Savings Scheme, How These Schemes Help Long-Term Wealth)
+    4. Insurance (Term Insurance, Endowment vs ULIP, Health Insurance Basics, Cashless vs Reimbursement, Personal Accident Insurance, Motor Insurance Basics, Why Insurance Before Investments)
+    5. Taxes in India (Old vs New Regime, Tax Slabs, 80C Deductions, 80D, TDS on Salary/FD/MF, Form 16, 26AS, AIS, Capital Gains Tax on Stocks & MF, Basics of Filing ITR)
+    6. Mutual Funds (SIP, NAV, Direct vs Regular Funds, Equity Funds: Large/Mid/Small-Cap, Debt Funds: Liquid/Gilt/Corporate Bond, Hybrid Funds, ELSS, Expense Ratio, Index Funds: Nifty 50/Sensex)
+    7. Stock Market Basics (Nifty/Sensex, NSE/BSE, Demat + Trading Account, Brokers (Zerodha/Groww), Market vs Limit Orders, Stop-Loss, IPO Basics, Dividends, Long-Term vs Short-Term Mindset)
+    8. Fundamental Analysis (P/E Ratio, P/B Ratio, ROE, ROCE, Debt-to-Equity, Operating Margin, Reading Balance Sheets, Cash Flow Statements, Income Statement Basics, Moats, Promoter Holding, Market Share)
+    9. Advanced (Technical Analysis Basics, Support & Resistance, Moving Averages, Intro to Futures & Options, Why F&O is Risky, Basics of Crypto, Behavioural Biases, Credit Score & CIBIL Awareness).
 
     Constraints:
     1. Context: STRICTLY INDIAN. Use ₹ (Rupees), Lakhs/Crores. Mention Indian entities (SEBI, RBI, HDFC, Reliance).
@@ -91,12 +89,12 @@ def get_content_from_llm(past_topics):
     JSON Structure:
     {{
       "topic": "Specific Topic Name",
-      "subject": "Catchy Subject Line (e.g., '🚀 Why your Savings Account is losing money')",
-      "html_body": "HTML content. Use <h2>, <p>, <ul>. Use Indian examples.",
+      "subject": "Catchy Subject Line",
+      "html_body": "HTML content. Use <h2>, <p>, <ul>.",
       "chart_config": {{ 
           "type": "bar", 
-          "data": {{ ...Chart.js data relevant to the topic... }},
-          "options": {{ ... }}
+          "data": {{ "labels": ["A","B"], "datasets": [{{ "label": "Example", "data": [10, 20] }}] }},
+          "options": {{ "title": {{ "display": true, "text": "Chart Title" }} }}
       }}
     }}
     """
@@ -129,7 +127,12 @@ def get_chart_url(chart_config):
 def send_email(subject, html_content, to_email):
     msg = MIMEMultipart()
     msg['From'] = EMAIL_SENDER
-    msg['To'] = to_email # Setup for display
+    
+    # PRIVACY CONFIGURATION:
+    # 1. Set the visible 'To' header to the sender (YOU).
+    #    This way, recipients see "To: me@gmail.com" instead of a giant list of strangers.
+    msg['To'] = EMAIL_SENDER 
+    
     msg['Subject'] = subject
     msg.attach(MIMEText(html_content, 'html'))
 
@@ -139,12 +142,14 @@ def send_email(subject, html_content, to_email):
         server.login(EMAIL_SENDER, EMAIL_PASSWORD)
         text = msg.as_string()
         
-        # SPLIT MULTIPLE EMAILS HERE
+        # 2. Actual Delivery List
+        # Even though the header says "To: Sender", we tell the server 
+        # to deliver it to everyone in this list. This acts as a BCC.
         recipient_list = [email.strip() for email in to_email.split(',')]
         
         server.sendmail(EMAIL_SENDER, recipient_list, text)
         server.quit()
-        print(f"Email sent successfully to: {recipient_list}")
+        print(f"Email sent (BCC Mode) successfully to {len(recipient_list)} recipients.")
     except Exception as e:
         print(f"Failed to send email: {e}")
         raise e
