@@ -6,6 +6,7 @@ import google.generativeai as genai
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
+import time
 
 # --- Configuration ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -22,13 +23,12 @@ if not GEMINI_API_KEY:
 genai.configure(api_key=GEMINI_API_KEY)
 
 def load_history():
-    """Loads the history of past topics to prevent duplicates."""
+    """Loads the history of past topics."""
     if os.path.exists(HISTORY_FILE):
         with open(HISTORY_FILE, 'r') as f:
             try:
                 return json.load(f)
             except json.JSONDecodeError:
-                print("Warning: history.json was corrupted. Starting fresh.")
                 return [] 
     return []
 
@@ -39,92 +39,98 @@ def save_history(topic, history):
         json.dump(history, f, indent=2)
 
 def clean_json_response(text):
-    """
-    Crucial Fix: LLMs often wrap JSON in Markdown code blocks (```json ... ```).
-    This function strips those out to ensure valid JSON parsing.
-    """
+    """Strips markdown code blocks to ensure valid JSON."""
     text = text.strip()
-    # Remove markdown code blocks if present
     if text.startswith("```json"):
         text = text[7:]
     elif text.startswith("```"):
         text = text[3:]
-    
     if text.endswith("```"):
         text = text[:-3]
-    
     return text.strip()
 
 def get_content_from_llm(past_topics):
     """
-    Generates the content. Uses gemini-2.5-flash for speed and free-tier allowance.
+    Generates content based on a sequential Indian Finance Curriculum.
     """
-    model = genai.GenerativeModel('gemini-2.5-flash')
-    
-    # We send only the last 30 topics to keep the prompt size efficient
-    past_topics_str = ", ".join([h['topic'] for h in past_topics[-30:]])
+    # Get the most recent topic to determine the next step
+    last_topic = "None (This is the very first email)"
+    if past_topics:
+        last_topic = past_topics[-1]['topic']
+
+    # We send the last 10 topics to ensure we don't loop back too soon
+    recent_history_str = ", ".join([h['topic'] for h in past_topics[-10:]])
     
     prompt = f"""
-    You are a financial educator. Write a daily email teaching one specific beginner finance concept to a person who wants to start investing in Indian markets. This student is from India and is a young 20 year old boy who wants to learn finance markets
+    You are a Mentor for a 20-year-old student in India. You are teaching a "Zero to Hero" Finance Course via daily emails.
     
-    Constraint Checklist:
-    1. Topic must be UNIQUE and NOT in this list: [{past_topics_str}].
-    2. Length: 800-1200 words.
-    3. Tone: Beginner-friendly, encouraging.
-    4. Output: VALID JSON ONLY. No preamble.
-    
-    JSON Structure required:
+    Current State:
+    - The LAST topic you taught was: "{last_topic}".
+    - Recent topics covered: [{recent_history_str}].
+
+    Your Goal:
+    Determine the NEXT logical topic in the sequence. Do not skip steps. If the last topic was "Savings Accounts", the next should be "Fixed Deposits (FDs)" or "Recurring Deposits (RDs)", not "Option Trading".
+
+    The Syllabus Roadmap (Follow this order loosely):
+    1. Foundations (Inflation in India, Power of Compounding, Assets vs Liabilities)
+    2. Banking Basics (Savings, FD, RD, UPI safety)
+    3. Government Schemes (PPF, EPF, Sukanya Samriddhi)
+    4. Insurance (Term vs Endowment, Health Insurance basics)
+    5. Taxes in India (Old vs New Regime, 80C, TDS)
+    6. Mutual Funds (SIPs, NAV, Equity vs Debt funds)
+    7. Stock Market Basics (Nifty/Sensex, Demat accounts, IPOs)
+    8. Fundamental Analysis (P/E Ratio, ROE, Reading Balance Sheets)
+    9. Advanced (Technical Analysis, F&O intro).
+
+    Constraints:
+    1. Context: STRICTLY INDIAN. Use ₹ (Rupees), Lakhs/Crores. Mention Indian entities (SEBI, RBI, HDFC, Reliance).
+    2. Tone: Exciting, relatable for a 20-year-old Gen Z Indian. Use analogies.
+    3. Length: 800-1200 words.
+    4. Output: VALID JSON ONLY.
+
+    JSON Structure:
     {{
-      "topic": "Short Topic Name",
-      "subject": "Catchy Email Subject",
-      "html_body": "The full article in HTML format (use <h2>, <p>, <ul>, <li>). Do not use <html> or <body> tags. Style with inline CSS.",
+      "topic": "Specific Topic Name",
+      "subject": "Catchy Subject Line (e.g., '🚀 Why your Savings Account is losing money')",
+      "html_body": "HTML content. Use <h2>, <p>, <ul>. Use Indian examples.",
       "chart_config": {{ 
           "type": "bar", 
-          "data": {{ "labels": ["A","B"], "datasets": [{{ "label": "Example", "data": [10, 20] }}] }},
-          "options": {{ "title": {{ "display": true, "text": "Chart Title" }} }}
+          "data": {{ ...Chart.js data relevant to the topic... }},
+          "options": {{ ... }}
       }}
     }}
     """
 
-    try:
-        response = model.generate_content(
-            prompt,
-            generation_config={"response_mime_type": "application/json"}
-        )
-        cleaned_text = clean_json_response(response.text)
-        return json.loads(cleaned_text)
-    except Exception as e:
-        print(f"Error generating content from Gemini: {e}")
-        return None
+    models_to_try = ['gemini-2.5-flash']
+
+    for model_name in models_to_try:
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(
+                prompt,
+                generation_config={"response_mime_type": "application/json"}
+            )
+            return json.loads(clean_json_response(response.text))
+        except Exception:
+            continue
+            
+    return None
 
 def get_chart_url(chart_config):
-    """
-    Generates a chart image URL using QuickChart.io.
-    """
     url = "[https://quickchart.io/chart/create](https://quickchart.io/chart/create)"
-    payload = {
-        "chart": chart_config,
-        "width": 600,
-        "height": 400,
-        "backgroundColor": "white",
-        "format": "png"
-    }
-    
+    payload = {"chart": chart_config, "width": 600, "height": 400, "backgroundColor": "white"}
     try:
-        # We use a POST request to handle large config objects
         response = requests.post(url, json=payload)
         response.raise_for_status()
         return response.json().get('url')
-    except Exception as e:
-        print(f"Error generating chart: {e}")
-        return None # Return None so email sends without chart rather than failing
+    except:
+        return None
 
 def send_email(subject, html_content, to_email):
     msg = MIMEMultipart()
     msg['From'] = EMAIL_SENDER
-    msg['To'] = to_email
+    msg['To'] = to_email # Setup for display
     msg['Subject'] = subject
-
     msg.attach(MIMEText(html_content, 'html'))
 
     try:
@@ -133,83 +139,51 @@ def send_email(subject, html_content, to_email):
         server.login(EMAIL_SENDER, EMAIL_PASSWORD)
         text = msg.as_string()
         
-        # Handle multiple recipients if comma-separated
-        recipients = to_email.split(',')
-        server.sendmail(EMAIL_SENDER, recipients, text)
+        # SPLIT MULTIPLE EMAILS HERE
+        recipient_list = [email.strip() for email in to_email.split(',')]
         
+        server.sendmail(EMAIL_SENDER, recipient_list, text)
         server.quit()
-        print(f"Email sent successfully to {to_email}")
+        print(f"Email sent successfully to: {recipient_list}")
     except Exception as e:
         print(f"Failed to send email: {e}")
         raise e
 
 def main():
-    print(f"--- Starting Daily Finance Mailer at {datetime.now()} ---")
-    
-    # 1. Load History
     history = load_history()
-    
-    # 2. Generate Content
-    print("Querying Gemini...")
     content_data = get_content_from_llm(history)
     
     if not content_data:
-        print("Failed to generate content. Exiting.")
-        exit(1) # Exit with error code so GitHub Actions marks it as failed
+        print("Failed to generate content.")
+        exit(1)
         
     topic = content_data.get('topic', 'Finance Topic')
-    print(f"Generated Topic: {topic}")
-    
-    # 3. Generate Chart URL (Safe Mode)
-    print("Generating Chart...")
     chart_url = None
     if 'chart_config' in content_data:
         chart_url = get_chart_url(content_data['chart_config'])
     
-    # 4. Assemble HTML
     chart_html = ""
     if chart_url:
-        chart_html = f"""
-        <div style="margin: 20px 0; text-align: center;">
-            <img src="{chart_url}" alt="{topic} Chart" style="max-width: 100%; height: auto; border: 1px solid #ddd; border-radius: 8px;">
-        </div>
-        """
+        chart_html = f'<div style="text-align:center;"><img src="{chart_url}" style="max-width:100%; border-radius:8px;"></div>'
     
     final_html = f"""
     <html>
-    <body style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="background-color: #ffffff; padding: 20px; border: 1px solid #e1e1e1; border-radius: 8px;">
-            <div style="border-bottom: 2px solid #4CAF50; padding-bottom: 10px; margin-bottom: 20px;">
-                <h1 style="color: #2E7D32; margin: 0; font-size: 24px;">📈 Daily Finance Byte</h1>
-                <p style="color: #666; font-size: 14px; margin: 5px 0 0 0;">{datetime.now().strftime("%B %d, %Y")}</p>
-            </div>
-            
+    <body style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; line-height: 1.6; color: #333;">
+        <div style="background: #fff; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+            <h1 style="color: #d35400;">🇮🇳 Daily Finance Byte</h1>
+            <p style="color: #7f8c8d; font-size: 0.9em;">{datetime.now().strftime("%d %B, %Y")}</p>
+            <hr style="border: 0; border-top: 1px solid #eee;">
             {chart_html}
-            
-            <div style="font-size: 16px;">
-                {content_data.get('html_body', '<p>Error: No body content generated.</p>')}
-            </div>
-            
-            <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;">
-            <p style="font-size: 12px; color: #999; text-align: center;">
-                Automated by Gemini & GitHub Actions
-            </p>
+            {content_data.get('html_body')}
+            <hr style="border: 0; border-top: 1px solid #eee;">
+            <p style="font-size: 0.8em; color: #999; text-align: center;">Generated by AI for Indian Markets.</p>
         </div>
     </body>
     </html>
     """
     
-    # 5. Send Email
-    print("Sending Email...")
-    send_email(content_data.get('subject', f"Daily Finance: {topic}"), final_html, EMAIL_RECIPIENT)
-    
-    # 6. Save History
+    send_email(content_data.get('subject'), final_html, EMAIL_RECIPIENT)
     save_history(topic, history)
-    print("Success. Workflow completed.")
 
 if __name__ == "__main__":
-
     main()
-
-
-
